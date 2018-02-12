@@ -1,11 +1,12 @@
 // mandelbrot.cpp
-// compile with: g++ -std=c++11 mandelbrot.cpp -o mandelbrot
+// compile with: g++ -std=c++11 mandelbrot.cpp -o mandelbrot -fopenmp
 // view output with: eog mandelbrot.ppm
 
 #include <fstream>
 #include <complex> // if you make use of complex number facilities in C++
 #include <iostream>;
 #include <thread>;
+
 using namespace std;
 
 template<class T>
@@ -74,21 +75,8 @@ public:
     }
 };
 
-int main() {
-    long PhysMemory = 16;
-    cout << "found " << thread::hardware_concurrency() << " threads" << endl;
-    const unsigned width = 2560*10;
-    const unsigned height = 1080*10;
+void draw_mandelbrot(const unsigned width, const unsigned height, PPMImage image) {
     double max_iterations = 2500;
-
-    PPMImage image(height, width);
-
-//    while (true){
-//        cout << "using too much memory, scaling down picture";
-//        delete(image);
-//        PPMImage image(height*.99,width*.99);
-//    }
-
     double zoom = pow(2, 64);
     double minReal = (-.32175*zoom-1.17)/zoom*width/height; // move the left border
     double maxReal = (-.31675*zoom+1.21)/zoom*width/height; // move the right border
@@ -97,7 +85,7 @@ int main() {
     double realFactor = (maxReal-minReal)/(width-1);
     double imagFactor = (maxImag-minImag)/(height-1);
 
-
+#pragma omp parallel for num_threads(thread::hardware_concurrency()-1) schedule(dynamic, 100)
     for (int y = 0; y < height; ++y) {
         double c_im = maxImag-y*imagFactor;
         for (int x = 0; x < width; ++x) {
@@ -121,11 +109,20 @@ int main() {
                 image[y][x].r = image[y][x].b = (current_ite - (max_iterations / 2)) / (max_iterations / 2) * 255;
             }
         }
-        if(y%(height/100)==0) {
+        if (y / height * 100) {
             std::cout << "Calculating " << static_cast<int>(static_cast<double>(y)/static_cast<double>(height)*100) << "% \r" << std::flush;
         }
     }
     std::cout << "Calculating 100%" << std::endl;
+}
+
+int main() {
+    cout << "found " << thread::hardware_concurrency() << " threads" << endl;
+    const unsigned width = 2560 * 5;
+    const unsigned height = 1080 * 5;
+
+    PPMImage image(height, width);
+    draw_mandelbrot(width, height, image);
 
     /*
     image[y][x].r = image[y][x].g = image[y][x].b = 255; // white pixel
@@ -138,6 +135,6 @@ int main() {
     image[y][x].b = 0;
     */
 
-    image.save("R:\\Development\\mandelbrot_zoom.ppm");
+    image.save("mandelbrot_threaded.ppm");
 }
 
