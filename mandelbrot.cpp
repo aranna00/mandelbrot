@@ -6,6 +6,7 @@
 #include <complex> // if you make use of complex number facilities in C++
 #include <iostream>;
 #include <thread>;
+#include <vector>
 
 using namespace std;
 
@@ -75,54 +76,59 @@ public:
     }
 };
 
-void draw_mandelbrot(const unsigned width, const unsigned height, PPMImage image) {
-    double max_iterations = 2500;
-    double zoom = pow(2, 64);
-    double minReal = (-.32175*zoom-1.17)/zoom*width/height; // move the left border
-    double maxReal = (-.31675*zoom+1.21)/zoom*width/height; // move the right border
-    double minImag = (0.063*zoom-1.16)/zoom; // moves the bottom side
-    double maxImag = (minImag+(maxReal-minReal)*height/width); // moves the top side
-    double realFactor = (maxReal-minReal)/(width-1);
-    double imagFactor = (maxImag-minImag)/(height-1);
-
-#pragma omp parallel for num_threads(thread::hardware_concurrency()-1) schedule(dynamic, 100)
-    for (int y = 0; y < height; ++y) {
-        double c_im = maxImag-y*imagFactor;
-        for (int x = 0; x < width; ++x) {
-            double c_re = minReal+x*realFactor;
-            double Z_re = c_re, Z_im = c_im; // Set Z = c
-            unsigned current_ite;
-            for(current_ite=0; current_ite<max_iterations; ++current_ite)
-            {
-                double Z_re2 = Z_re*Z_re, Z_im2 = Z_im*Z_im;
-                if(Z_re2 + Z_im2 > 4)
-                {
-                    break;
-                }
-                Z_im = 2*Z_re*Z_im + c_im;
-                Z_re = Z_re2 - Z_im2 + c_re;
+void drawY(const unsigned width, double max_iterations, double minReal, double maxImag, int y, double imagFactor,
+           double realFactor, PPMImage &image) {
+    double c_im = maxImag - y * imagFactor;
+    for (int x = 0; x < width; ++x) {
+        double c_re = minReal + x * realFactor;
+        double Z_re = c_re, Z_im = c_im; // Set Z = c
+        unsigned current_ite;
+        for (current_ite = 0; current_ite < max_iterations; ++current_ite) {
+            double Z_re2 = Z_re * Z_re, Z_im2 = Z_im * Z_im;
+            if (Z_re2 + Z_im2 > 4) {
+                break;
             }
-            if(current_ite<max_iterations/2) {
-                image[y][x].g = current_ite/(max_iterations/2-1)*255;
-            } else if (current_ite<max_iterations-1){
-                image[y][x].g = 255;
-                image[y][x].r = image[y][x].b = (current_ite - (max_iterations / 2)) / (max_iterations / 2) * 255;
-            }
+            Z_im = 2 * Z_re * Z_im + c_im;
+            Z_re = Z_re2 - Z_im2 + c_re;
         }
-        if (y / height * 100) {
-            std::cout << "Calculating " << static_cast<int>(static_cast<double>(y)/static_cast<double>(height)*100) << "% \r" << std::flush;
+        if (current_ite < max_iterations / 2) {
+            image[y][x].g = current_ite / (max_iterations / 2 - 1) * 255;
+        } else if (current_ite < max_iterations - 1) {
+            image[y][x].g = 255;
+            image[y][x].r = image[y][x].b = (current_ite - (max_iterations / 2)) / (max_iterations / 2) * 255;
         }
     }
-    std::cout << "Calculating 100%" << std::endl;
+}
+
+void drawMandelbrot(const unsigned width, const unsigned height, PPMImage &image, int numThreads) {
+    double max_iterations = 5000;
+    double zoom = pow(2, 64);
+//    double zoom = pow(2,0);
+    double minReal = (-.32175 * zoom - 1.17) / zoom * width / height; // move the left border
+    double maxReal = (-.31675 * zoom + 1.21) / zoom * width / height; // move the right border
+    double minImag = (0.063 * zoom - 1.16) / zoom; // moves the bottom side
+    double maxImag = (minImag + (maxReal - minReal) * height / width); // moves the top side
+    double realFactor = (maxReal - minReal) / (width - 1);
+    double imagFactor = (maxImag - minImag) / (height - 1);
+    vector<thread> workers;
+    for (int y = 0; y < height; ++y) {
+        workers.emplace_back(drawY, width, max_iterations, minReal, maxImag, y, imagFactor, realFactor, ref(image));
+//        drawY(width,max_iterations,minReal,maxImag,y,imagFactor,realFactor,image);
+    }
+    for (int i = 0; i < workers.size(); ++i) {
+        workers[i].join();
+    }
+    cout << "Calculating 100%" << endl;
 }
 
 int main() {
-    cout << "found " << thread::hardware_concurrency() << " threads" << endl;
-    const unsigned width = 2560 * 5;
-    const unsigned height = 1080 * 5;
+    int numThreads = thread::hardware_concurrency();
+    cout << "found " << numThreads << " threads will use " << numThreads - 1 << endl;
+    const unsigned width = 2560;
+    const unsigned height = 1080;
 
     PPMImage image(height, width);
-    draw_mandelbrot(width, height, image);
+    drawMandelbrot(width, height, image, numThreads);
 
     /*
     image[y][x].r = image[y][x].g = image[y][x].b = 255; // white pixel
