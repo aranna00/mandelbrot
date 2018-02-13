@@ -15,7 +15,6 @@ struct RGB {
     T r, g, b;
 };
 
-
 template<class T>
 class Matrix {
 public:
@@ -76,6 +75,25 @@ public:
     }
 };
 
+template<class T>
+class ThreadManager {
+private:
+    double height, width, yStep, xStep;
+    double currentY, currentX = 0;
+public:
+    bool done = false;
+
+    ThreadManager(double height, double width, double yStep, double xStep)
+            : height(height), width(width), yStep(yStep), xStep(xStep) {
+
+    }
+
+    std::tuple getWork() {
+
+        return 0, 0, 0, 0;
+    }
+};
+
 void drawY(const unsigned width, double max_iterations, double minReal, double maxImag, int y, double imagFactor,
            double realFactor, PPMImage &image) {
     double c_im = maxImag - y * imagFactor;
@@ -124,8 +142,8 @@ void drawMandelbrot(const unsigned width, const unsigned height, PPMImage &image
 int main() {
     int numThreads = thread::hardware_concurrency();
     cout << "found " << numThreads << " threads will use " << numThreads - 1 << endl;
-    const unsigned width = 2560;
-    const unsigned height = 1080;
+    const unsigned width = 25600;
+    const unsigned height = 10800;
 
     PPMImage image(height, width);
     drawMandelbrot(width, height, image, numThreads);
