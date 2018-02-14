@@ -4,8 +4,8 @@
 
 #include <fstream>
 #include <complex> // if you make use of complex number facilities in C++
-#include <iostream>;
-#include <thread>;
+#include <iostream>
+#include <thread>
 #include <vector>
 
 using namespace std;
@@ -67,58 +67,110 @@ public:
             for (size_t x = 0; x < _cols; x++) {
                 out << _matrix[y][x].r << _matrix[y][x].g << _matrix[y][x].b;
             }
-            if(y%100==0) {
-                std::cout << "Processing image " << static_cast<int>(static_cast<double>(y)/static_cast<double>(_rows)*100) << "% \r" << std::flush;
+            if (y % 100 == 0) {
+                std::cout << "Processing image "
+                          << static_cast<int>(static_cast<double>(y) / static_cast<double>(_rows) * 100) << "% \r"
+                          << std::flush;
             }
         }
         std::cout << "Image processed" << std::endl;
     }
 };
 
-template<class T>
 class ThreadManager {
 private:
-    double height, width, yStep, xStep;
-    double currentY, currentX = 0;
+    int height, width, yStep, xStep;
+    int currentY = 0, currentX = 0;
+    bool yDone = false;
 public:
     bool done = false;
+    int percentageDone = 0;
+    int amountOfWork = 0;
+    int amountOfWorkDone = 0;
 
-    ThreadManager(double height, double width, double yStep, double xStep)
+    ThreadManager(int height, int width, int yStep, int xStep)
             : height(height), width(width), yStep(yStep), xStep(xStep) {
-
+        amountOfWork = (height / yStep) * (width / xStep);
     }
 
-    std::tuple getWork() {
+    tuple<double, double, int, int> getWork() {
+        amountOfWorkDone++;
+        int startY = currentY;
+        int startX = currentX;
+        int yStep = this->yStep;
+        int xStep = this->xStep;
 
-        return 0, 0, 0, 0;
+
+        if (currentY + yStep > height) {
+            yStep = (height % yStep);
+            yDone = true;
+        }
+        if (startX + xStep > width) {
+            xStep = (width % xStep);
+            this->currentX = 0;
+            this->currentY += yStep;
+            if (yDone) {
+                done = true;
+            }
+        } else {
+            this->currentX += xStep;
+        }
+
+        string progressBar = "";
+        percentageDone = static_cast<int>(amountOfWorkDone / static_cast<double>(amountOfWork) * 100);
+        for (int j = 0; j < percentageDone / 10; ++j) {
+            progressBar += "⚫";
+        }
+        for (int i = 0; i < 10 - percentageDone / 10; ++i) {
+            progressBar += "⚪";
+        }
+        progressBar += " ";
+        cout << "\r" << progressBar << percentageDone << "%" << flush;
+
+        return tuple<int, int, int, int>(startY, startX, yStep, xStep);
     }
 };
 
-void drawY(const unsigned width, double max_iterations, double minReal, double maxImag, int y, double imagFactor,
-           double realFactor, PPMImage &image) {
-    double c_im = maxImag - y * imagFactor;
-    for (int x = 0; x < width; ++x) {
-        double c_re = minReal + x * realFactor;
-        double Z_re = c_re, Z_im = c_im; // Set Z = c
-        unsigned current_ite;
-        for (current_ite = 0; current_ite < max_iterations; ++current_ite) {
-            double Z_re2 = Z_re * Z_re, Z_im2 = Z_im * Z_im;
-            if (Z_re2 + Z_im2 > 4) {
-                break;
+
+void worker(const unsigned width, double max_iterations, double minReal, double maxImag, double imagFactor,
+            double realFactor, PPMImage &image, ThreadManager &threadManager) {
+    while (!threadManager.done) {
+        tuple<double, double, int, int> work = threadManager.getWork();
+        for (int y = get<0>(work); y < get<0>(work) + get<2>(work); ++y) {
+            double c_im = maxImag - y * imagFactor;
+            for (int x = get<1>(work); x < get<1>(work) + get<3>(work); ++x) {
+                double c_re = minReal + x * realFactor;
+                double Z_re = c_re, Z_im = c_im; // Set Z = c
+                unsigned current_ite;
+                for (current_ite = 0; current_ite < max_iterations; ++current_ite) {
+                    double Z_re2 = Z_re * Z_re, Z_im2 = Z_im * Z_im;
+                    if (Z_re2 + Z_im2 > 4) {
+                        break;
+                    }
+                    Z_im = 2 * Z_re * Z_im + c_im;
+                    Z_re = Z_re2 - Z_im2 + c_re;
+                }
+                if (current_ite < max_iterations / 2) {
+                    image[y][x].g = current_ite / (max_iterations / 2 - 1) * 255;
+                } else if (current_ite < max_iterations - 1) {
+                    image[y][x].g = 255;
+                    image[y][x].r = image[y][x].b = (current_ite - (max_iterations / 2)) / (max_iterations / 2) * 255;
+                }
             }
-            Z_im = 2 * Z_re * Z_im + c_im;
-            Z_re = Z_re2 - Z_im2 + c_re;
-        }
-        if (current_ite < max_iterations / 2) {
-            image[y][x].g = current_ite / (max_iterations / 2 - 1) * 255;
-        } else if (current_ite < max_iterations - 1) {
-            image[y][x].g = 255;
-            image[y][x].r = image[y][x].b = (current_ite - (max_iterations / 2)) / (max_iterations / 2) * 255;
         }
     }
 }
 
-void drawMandelbrot(const unsigned width, const unsigned height, PPMImage &image, int numThreads) {
+
+int main() {
+    int numThreads = thread::hardware_concurrency();
+    cout << "found " << numThreads << " threads will use " << numThreads - 1 << endl;
+    const unsigned width = 2560;
+    const unsigned height = 1080;
+
+    ThreadManager threadManager(height, width, 100, 100);
+
+    PPMImage image(height, width);
     double max_iterations = 5000;
     double zoom = pow(2, 64);
 //    double zoom = pow(2,0);
@@ -129,36 +181,13 @@ void drawMandelbrot(const unsigned width, const unsigned height, PPMImage &image
     double realFactor = (maxReal - minReal) / (width - 1);
     double imagFactor = (maxImag - minImag) / (height - 1);
     vector<thread> workers;
-    for (int y = 0; y < height; ++y) {
-        workers.emplace_back(drawY, width, max_iterations, minReal, maxImag, y, imagFactor, realFactor, ref(image));
-//        drawY(width,max_iterations,minReal,maxImag,y,imagFactor,realFactor,image);
+    for (int y = 0; y < numThreads - 1; ++y) {
+        workers.emplace_back(worker, width, max_iterations, minReal, maxImag, imagFactor, realFactor, ref(image),
+                             ref(threadManager));
     }
     for (int i = 0; i < workers.size(); ++i) {
         workers[i].join();
     }
-    cout << "Calculating 100%" << endl;
+
+    image.save("mandelbrot_managed.ppm");
 }
-
-int main() {
-    int numThreads = thread::hardware_concurrency();
-    cout << "found " << numThreads << " threads will use " << numThreads - 1 << endl;
-    const unsigned width = 25600;
-    const unsigned height = 10800;
-
-    PPMImage image(height, width);
-    drawMandelbrot(width, height, image, numThreads);
-
-    /*
-    image[y][x].r = image[y][x].g = image[y][x].b = 255; // white pixel
-    
-    image[y][x].r = image[y][x].g = image[y][x][b] = 0; // black pixel
-   
-    // red pixel
-    image[y][x].r = 255;
-    image[y][x].g = 0;
-    image[y][x].b = 0;
-    */
-
-    image.save("mandelbrot_threaded.ppm");
-}
-
